@@ -4,8 +4,7 @@
 
 /**
  * TODO:
- * For movement speed, add a relative coordinate to block. For example x_block and the value should be normalized and in float so 1.0 from the start and -1.0 to the end.
- * 0.0 is center
+ * Add direction to movement.
  */
 
 
@@ -266,7 +265,6 @@ int main() {
             std::cout << "You are standing at the block: " << (int) get_block(block_storage, town, player.town_coord).type << '\n';
             std::cout << "List of entities at the block: \n";
 
-            // TODO: Need a faster way to get a list of entities in a block
             for (EntityId id: get_block(block_storage, town, player.town_coord).entities) {
                 const EntityData& entity_data = entity_storage.entities[id];
                 std::cout << "Entity: " << (int) entity_data.type << '\n';
