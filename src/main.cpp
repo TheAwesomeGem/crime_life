@@ -105,7 +105,23 @@ struct BlockStorage {
     std::unordered_map<BlockId, BlockData> blocks;
 };
 
+struct MovementComponent {
+    MovementComponent()
+            : speed{0.0F} {
+
+    }
+
+    explicit MovementComponent(float speed_)
+            : speed{speed_} {
+
+    }
+
+    float speed;
+};
+
 struct EntityData {
+    static constexpr const float MAX_MOVEMENT_SPEED = 100.0F;
+
     enum class Type {
         NONE,
         HERO,
@@ -126,10 +142,19 @@ struct EntityData {
     Type type;
     TownCoordinate town_coord;
     BlockCoordinate block_coord;
+
+    std::optional<MovementComponent> movement;
 };
 
 struct EntityStorage {
     std::unordered_map<EntityId, EntityData> entities;
+};
+
+struct MovementData {
+    TownCoordinate old_town_coord;
+    BlockCoordinate old_block_coord;
+    TownCoordinate new_town_coord;
+    BlockCoordinate new_block_coord;
 };
 
 // TODO: Temp code. This is doing too much. Storage responsibility should be a different function than adding it to the town.
@@ -166,11 +191,41 @@ EntityData& add_entity(
     return entity_storage.entities[id];
 }
 
-// TODO: We need move that respects the block coordinate too and not just the town coordinate.
-void move(BlockStorage& block_storage, Town& town, EntityData& entity_data, TownCoordinate new_coord) {
-    move_entity_to_new_block(block_storage, town, new_coord, entity_data);
+// TODO: Consider direction here in the future so we can have a velocity
+MovementData do_movement(TownCoordinate current_town_coord, BlockCoordinate current_block_coord, const MovementComponent& movement) {
+    TownCoordinate new_town_coord = current_town_coord;
+    BlockCoordinate new_block_coord = current_block_coord;
 
-    entity_data.town_coord = new_coord;
+    float amount_to_move = movement.speed / EntityData::MAX_MOVEMENT_SPEED;
+    float remainder = 1.0F - (current_block_coord.top + amount_to_move);
+
+    if (remainder < 0.0F) {
+        ++new_town_coord.top;
+        new_block_coord.top = -1.0F + abs(remainder);
+    } else {
+        new_block_coord.top = current_block_coord.top + amount_to_move;
+    }
+
+    return MovementData{current_town_coord, current_block_coord, new_town_coord, new_block_coord};
+}
+
+void advance_move(BlockStorage& block_storage, Town& town, EntityData& entity_data, const MovementData& movement_data) {
+    move_entity_to_new_block(block_storage, town, movement_data.new_town_coord, entity_data);
+
+    entity_data.town_coord = movement_data.new_town_coord;
+    entity_data.block_coord = movement_data.new_block_coord;
+}
+
+std::ostream& operator<<(std::ostream& stream, TownCoordinate coord) {
+    stream << "[" << coord.left << ", " << coord.top << "]";
+
+    return stream;
+}
+
+std::ostream& operator<<(std::ostream& stream, BlockCoordinate coord) {
+    stream << "[" << coord.left << ", " << coord.top << "]";
+
+    return stream;
 }
 
 int main() {
@@ -185,6 +240,7 @@ int main() {
 
     EntityStorage entity_storage;
     EntityData& player = add_entity(uuid_rng, block_storage, town, entity_storage, EntityData::Type::HERO, TownCoordinate{0, 0});
+    player.movement.emplace(20.0F);
     add_entity(uuid_rng, block_storage, town, entity_storage, EntityData::Type::TREE, TownCoordinate{0, 1});
 
     std::string input;
@@ -201,10 +257,11 @@ int main() {
                        [](unsigned char c) { return std::tolower(c); });
 
         if (input == "walk") {
-            TownCoordinate new_coord = player.town_coord;
-            new_coord.top++;
-            move(block_storage, town, player, new_coord);
+            MovementData movement_data = do_movement(player.town_coord, player.block_coord, *player.movement);
+            advance_move(block_storage, town, player, movement_data);
             std::cout << "You walked forward.\n";
+            std::cout << "Town Coordinate is " << player.town_coord << '\n';
+            std::cout << "Block Coordinate is " << player.block_coord << '\n';
         } else if (input == "info") {
             std::cout << "You are standing at the block: " << (int) get_block(block_storage, town, player.town_coord).type << '\n';
             std::cout << "List of entities at the block: \n";
