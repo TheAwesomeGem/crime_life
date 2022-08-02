@@ -4,7 +4,8 @@
 
 /**
  * TODO:
- * Add direction to movement.
+ * Add facing/directionality system for entities that can do movement.
+ * Add input system.
  */
 
 
@@ -60,6 +61,22 @@ struct BlockCoordinate {
 
     float left;
     float top;
+
+    [[nodiscard]] float dot(BlockCoordinate coord) const {
+        return (this->left * coord.left) + (this->top * coord.top);
+    }
+
+    [[nodiscard]] float length_sq() const {
+        return dot(*this);
+    }
+
+    [[nodiscard]] float length() const {
+        return sqrtf(length_sq());
+    }
+
+    [[nodiscard]] BlockCoordinate normalized() const {
+        return BlockCoordinate{this->left / length(), this->top / length()};
+    }
 };
 
 namespace std {
@@ -106,16 +123,17 @@ struct BlockStorage {
 
 struct MovementComponent {
     MovementComponent()
-            : speed{0.0F} {
+            : speed{0.0F}, velocity{} {
 
     }
 
     explicit MovementComponent(float speed_)
-            : speed{speed_} {
+            : speed{speed_}, velocity{} {
 
     }
 
     float speed;
+    BlockCoordinate velocity;
 };
 
 struct EntityData {
@@ -190,22 +208,32 @@ EntityData& add_entity(
     return entity_storage.entities[id];
 }
 
-// TODO: Consider direction here in the future so we can have a velocity
-MovementData do_movement(TownCoordinate current_town_coord, BlockCoordinate current_block_coord, const MovementComponent& movement) {
-    TownCoordinate new_town_coord = current_town_coord;
-    BlockCoordinate new_block_coord = current_block_coord;
-
-    float amount_to_move = movement.speed / EntityData::MAX_MOVEMENT_SPEED;
-    float remainder = 1.0F - (current_block_coord.top + amount_to_move);
+std::pair<int, float> move_block_axis(int town_axis, float block_axis, float movement_amount) {
+    int new_town_axis = town_axis;
+    float new_block_axis = block_axis;
+    float remainder = 1.0F - (block_axis + movement_amount);
 
     if (remainder < 0.0F) {
-        ++new_town_coord.top;
-        new_block_coord.top = -1.0F + abs(remainder);
+        ++new_town_axis;
+        new_block_axis = -1.0F + abs(remainder);
     } else {
-        new_block_coord.top = current_block_coord.top + amount_to_move;
+        new_block_axis += movement_amount;
     }
 
-    return MovementData{current_town_coord, current_block_coord, new_town_coord, new_block_coord};
+    return std::make_pair(new_town_axis, new_block_axis);
+}
+
+MovementData do_movement(TownCoordinate current_town_coord, BlockCoordinate current_block_coord, const MovementComponent& movement) {
+    float movement_speed = (movement.speed / EntityData::MAX_MOVEMENT_SPEED);
+    auto [new_town_left, new_block_left] = move_block_axis(current_town_coord.left,
+                                                           current_block_coord.left,
+                                                           movement.velocity.left * movement_speed);
+    auto [new_town_top, new_block_top] = move_block_axis(current_town_coord.top,
+                                                         current_block_coord.top,
+                                                         movement.velocity.top * movement_speed);
+
+
+    return MovementData{current_town_coord, current_block_coord, TownCoordinate{new_town_left, new_town_top}, BlockCoordinate{new_block_left, new_block_top}};
 }
 
 void advance_move(BlockStorage& block_storage, Town& town, EntityData& entity_data, const MovementData& movement_data) {
@@ -237,6 +265,21 @@ int main() {
     add_block(uuid_rng, block_storage, town, TownCoordinate{0, 2}, BlockData::Type::GRASS);
     add_block(uuid_rng, block_storage, town, TownCoordinate{0, 3}, BlockData::Type::ROAD);
 
+    add_block(uuid_rng, block_storage, town, TownCoordinate{1, 0}, BlockData::Type::GRASS);
+    add_block(uuid_rng, block_storage, town, TownCoordinate{1, 1}, BlockData::Type::GRASS);
+    add_block(uuid_rng, block_storage, town, TownCoordinate{1, 2}, BlockData::Type::GRASS);
+    add_block(uuid_rng, block_storage, town, TownCoordinate{1, 3}, BlockData::Type::ROAD);
+
+    add_block(uuid_rng, block_storage, town, TownCoordinate{2, 0}, BlockData::Type::GRASS);
+    add_block(uuid_rng, block_storage, town, TownCoordinate{2, 1}, BlockData::Type::GRASS);
+    add_block(uuid_rng, block_storage, town, TownCoordinate{2, 2}, BlockData::Type::GRASS);
+    add_block(uuid_rng, block_storage, town, TownCoordinate{2, 3}, BlockData::Type::ROAD);
+
+    add_block(uuid_rng, block_storage, town, TownCoordinate{3, 0}, BlockData::Type::GRASS);
+    add_block(uuid_rng, block_storage, town, TownCoordinate{3, 1}, BlockData::Type::GRASS);
+    add_block(uuid_rng, block_storage, town, TownCoordinate{3, 2}, BlockData::Type::GRASS);
+    add_block(uuid_rng, block_storage, town, TownCoordinate{3, 3}, BlockData::Type::ROAD);
+
     EntityStorage entity_storage;
     EntityData& player = add_entity(uuid_rng, block_storage, town, entity_storage, EntityData::Type::HERO, TownCoordinate{0, 0});
     player.movement.emplace(20.0F);
@@ -255,10 +298,20 @@ int main() {
         std::transform(input.begin(), input.end(), input.begin(),
                        [](unsigned char c) { return std::tolower(c); });
 
-        if (input == "walk") {
+        if (input == "walk" || input == "left" || input == "top") {
+            if (input == "walk") {
+                player.movement->velocity = BlockCoordinate{1.0F, 1.0F}.normalized();
+                std::cout << "You walked left and top.\n";
+            } else if (input == "left") {
+                player.movement->velocity = BlockCoordinate{1.0F, 0.0F};
+                std::cout << "You walked left.\n";
+            } else if (input == "top") {
+                player.movement->velocity = BlockCoordinate{0.0F, 1.0F};
+                std::cout << "You walked top.\n";
+            }
+
             MovementData movement_data = do_movement(player.town_coord, player.block_coord, *player.movement);
             advance_move(block_storage, town, player, movement_data);
-            std::cout << "You walked forward.\n";
             std::cout << "Town Coordinate is " << player.town_coord << '\n';
             std::cout << "Block Coordinate is " << player.block_coord << '\n';
         } else if (input == "info") {
@@ -271,7 +324,7 @@ int main() {
             }
         }
     }
-    while (!input.empty());
 
+    while (!input.empty());
     return 0;
 }
